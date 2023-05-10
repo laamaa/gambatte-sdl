@@ -1,3 +1,6 @@
 .cache
 *.out
 compile_commands.json
+gbc_bios.bin
+libgambatte.a
+lsdj.gb
