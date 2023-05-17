@@ -17,6 +17,7 @@
 //
 
 #include "audiosink.h"
+#include "SDL_log.h"
 #include <SDL_thread.h>
 #include <cstdio>
 
@@ -41,6 +42,7 @@ static int openAudio(long srate, std::size_t samples,
                      void (*callback)(void *userdata, Uint8 *stream, int len),
                      void *userdata)
 {
+	SDL_Log("Opening audio");
 	SDL_AudioSpec spec;
 	spec.freq = srate;
 	spec.format = AUDIO_S16SYS;
@@ -49,7 +51,7 @@ static int openAudio(long srate, std::size_t samples,
 	spec.callback = callback;
 	spec.userdata = userdata;
 	if (SDL_OpenAudio(&spec, 0) < 0) {
-		std::fprintf(stderr, "Could not open audio: %s\n", SDL_GetError());
+		SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Could not open audio: %s\n", SDL_GetError());
 		return -1;
 	}
 

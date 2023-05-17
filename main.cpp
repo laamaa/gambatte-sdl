@@ -1,14 +1,17 @@
+#include "SDL_timer.h"
 #include "audioout.h"
 #include "audiosink.h"
 #include "framewait.h"
 #include "gambatte.h"
 #include "gbint.h"
+#include "input.h"
 #include "resample/resamplerinfo.h"
 #include "skipsched.h"
 #include "usec.h"
 
 #include <SDL.h>
 #include <cstddef>
+#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <vector>
@@ -23,22 +26,12 @@ SDL_Texture *target_texture;
 const int texture_width = 160;
 const int texture_height = 144;
 
-gambatte::uint_least32_t *videoBuf =
-    new uint32_t[texture_width * texture_height];
-uint32_t *audiobuffer;
+static uint32_t *videoBuf = new uint32_t[texture_width * texture_height];
 
-SDL_AudioSpec want_out, have_out;
-
-uint32_t *framebuffer;
-
-gambatte::GB gb_;
-
-FrameWait frameWait;
+static gambatte::GB gb_;
 
 static std::size_t const gb_samples_per_frame = 35112;
 static std::size_t const gambatte_max_overproduction = 2064;
-
-static SDL_AudioDeviceID devid_out = 0;
 
 int render_sdl() {
   SDL_SetRenderTarget(rend, NULL);
@@ -49,37 +42,16 @@ int render_sdl() {
   return 0;
 }
 
-/* int audio_init(int audio_buffer_size, const char *output_device_name) {
-
-  SDL_Log("Initialize audio");
-
-  // Open output device first to avoid possible Directsound errors
-  SDL_zero(want_out);
-  want_out.freq = 44100;
-  want_out.format = AUDIO_S16;
-  want_out.channels = 2;
-  want_out.samples = audio_buffer_size;
-  devid_out = SDL_OpenAudioDevice(output_device_name, 0, &want_out, &have_out,
-                                  SDL_AUDIO_ALLOW_ANY_CHANGE);
-  SDL_Log("Opened device %s", SDL_GetAudioDeviceName(0, 0));
-  if (devid_out == 0) {
-    SDL_Log("Failed to open output: %s", SDL_GetError());
-    return 0;
-  }
-
-  // Start audio processing
-
-  SDL_PauseAudioDevice(devid_out, 0);
-
-  return 1;
+void destroy_sdl() {
+  SDL_DestroyTexture(maintexture);
+  SDL_DestroyRenderer(rend);
+  SDL_DestroyWindow(win);
+  SDL_Quit();
 }
 
-void audio_destroy() {
-  SDL_Log("Closing audio devices");
-  SDL_PauseAudioDevice(devid_out, 1);
-  SDL_CloseAudioDevice(devid_out);
-}
-*/
+// Handles CTRL+C / SIGINT
+void intHandler(int dummy) { exit(0); }
+
 int initialize_sdl() {
   const int window_width = 640;  // SDL window width
   const int window_height = 480; // SDL window height
@@ -91,7 +63,7 @@ int initialize_sdl() {
   }
 
   // SDL documentation recommends this
-  atexit(SDL_Quit);
+  atexit(destroy_sdl);
 
   SDL_Log("Creating window");
   win = SDL_CreateWindow("worlds no1 bestest emulator", SDL_WINDOWPOS_CENTERED,
@@ -109,26 +81,12 @@ int initialize_sdl() {
                                   SDL_TEXTUREACCESS_STREAMING, texture_width,
                                   texture_height);
 
-  audiobuffer = new gambatte::uint_least32_t[1024 * 1024];
-
   // clear the main texture
   SDL_SetRenderTarget(rend, maintexture);
   SDL_SetRenderDrawColor(rend, 0, 0, 0, 1);
   SDL_RenderClear(rend);
 
-  // Initialize audio using system default output
-  // audio_init(512, NULL);
-
   SDL_LogSetAllPriority(SDL_LOG_PRIORITY_DEBUG);
-  return 0;
-}
-
-int destroy_sdl() {
-  // audio_destroy();
-  SDL_DestroyTexture(maintexture);
-  SDL_DestroyRenderer(rend);
-  SDL_DestroyWindow(win);
-  SDL_Quit();
   return 0;
 }
 
@@ -152,14 +110,42 @@ std::ptrdiff_t run(uint_least32_t *pixels, std::ptrdiff_t pitch,
   return vidFrameSampleNo;
 }
 
+static void setGbDir(bool &a, bool &b, bool const aPressed, bool const bPressed,
+                     bool const preferA) {
+  if (aPressed & bPressed) {
+    a = false;
+    b = false;
+  } else {
+    a = aPressed;
+    b = bPressed;
+  }
+}
+
 int main(int argc, char *argv[]) {
 
   const int sampleRate = 48000;
   const int latency = 133;
   const int periods = 4;
 
-  SDL_Event e;
+  signal(SIGINT, intHandler);
+  signal(SIGTERM, intHandler);
+#ifdef SIGQUIT
+  signal(SIGQUIT, intHandler);
+#endif
+
   int err = 0;
+
+  err = initialize_sdl();
+
+  if (err != 0) {
+    SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Could not initialize SDL.");
+    destroy_sdl();
+    return 1;
+  }
+
+  // initial scan for (existing) game controllers
+  initialize_game_controllers();
+
   std::size_t bufsamples = 0;
   uint *bytes = nullptr;
   Array<Uint32> const audioBuf(gb_samples_per_frame +
@@ -171,13 +157,9 @@ int main(int argc, char *argv[]) {
   bool audioOutBufLow = false;
   int maintexture_pitch = 0;
 
-  err = initialize_sdl();
+  gb_.setInputGetter((gambatte::InputGetter *)&get_input, NULL);
 
-  if (err != 0) {
-    SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Could not initialize SDL.");
-    destroy_sdl();
-    return 1;
-  }  
+  SDL_PauseAudio(0);
 
   err = gb_.loadBios("gbc_bios.bin", 0, 0);
   if (err != 0) {
@@ -191,19 +173,13 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+
+
   for (;;) {
 
-    while (SDL_PollEvent(&e) != 0) {
-      switch (e.type) {
-      case SDL_QUIT:
-        destroy_sdl();
-        return 0;
-      }
-    }
-
     std::size_t runsamples = gb_samples_per_frame - bufsamples;
-    std::ptrdiff_t const vidFrameDoneSampleCnt = gb_.runFor(
-        videoBuf, texture_width, audiobuffer + bufsamples, runsamples);
+    std::ptrdiff_t const vidFrameDoneSampleCnt =
+        gb_.runFor(videoBuf, texture_width, audioBuf + bufsamples, runsamples);
     std::size_t const outsamples = vidFrameDoneSampleCnt >= 0
                                        ? bufsamples + vidFrameDoneSampleCnt
                                        : bufsamples + runsamples;
@@ -211,7 +187,7 @@ int main(int argc, char *argv[]) {
     bufsamples -= outsamples;
 
     bool const blit =
-        vidFrameDoneSampleCnt >= 0; // && !skipSched.skipNext(audioOutBufLow);
+        vidFrameDoneSampleCnt >= 0 && !skipSched.skipNext(audioOutBufLow);
 
     if (blit) {
 
@@ -221,12 +197,12 @@ int main(int argc, char *argv[]) {
                  texture_width * texture_height * sizeof(uint32_t));
       SDL_UnlockTexture(maintexture);
     }
-    
-    //AudioOut::Status const &astatus = aout.write(audioBuf, outsamples);
-    //audioOutBufLow = astatus.low;
+
+    AudioOut::Status const &astatus = aout.write(audioBuf, outsamples);
+    audioOutBufLow = astatus.low;
 
     if (blit) {
-      usec_t ft = (16743ul - 16743 / 1024) * 1; //sampleRate / astatus.rate;
+      usec_t ft = (16743ul - 16743 / 1024) * sampleRate / astatus.rate;
       frameWait.waitForNextFrameTime(ft);
       render_sdl();
     }
