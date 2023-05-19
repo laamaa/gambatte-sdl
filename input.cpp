@@ -1,5 +1,6 @@
 #include "input.h"
 #include "SDL_events.h"
+#include "SDL_gamecontroller.h"
 #include "SDL_keycode.h"
 #include "gambatte.h"
 #include <SDL.h>
@@ -120,15 +121,20 @@ static void handle_normal_keys(SDL_Event *event, bool state) {
   }
 }
 
-/*
 // Check whether a button is pressed on a gamepad and return 1 if pressed.
 static int get_game_controller_button(SDL_GameController *controller,
                                       int button) {
 
-  const int button_mappings[8] = {SDL_CONTROLLERBUTTONUP, conf->gamepad_down,
-                                  conf->gamepad_left,   conf->gamepad_right,
-                                  conf->gamepad_opt,    conf->gamepad_edit,
-                                  conf->gamepad_select, conf->gamepad_start};
+  const SDL_GameControllerButton button_mappings[8] = {
+      SDL_CONTROLLER_BUTTON_A,
+      SDL_CONTROLLER_BUTTON_B,
+      SDL_CONTROLLER_BUTTON_BACK,
+      SDL_CONTROLLER_BUTTON_START,
+      SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+      SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+      SDL_CONTROLLER_BUTTON_DPAD_UP,
+      SDL_CONTROLLER_BUTTON_DPAD_DOWN
+  };
 
   // Check digital buttons
   if (SDL_GameControllerGetButton(controller, button_mappings[button])) {
@@ -137,37 +143,23 @@ static int get_game_controller_button(SDL_GameController *controller,
     // If digital button isn't pressed, check the corresponding analog control
     switch (button) {
     case INPUT_UP:
-      return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_updown) <
-             -conf->gamepad_analog_threshold;
+      return SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY) <
+             -32766;
     case INPUT_DOWN:
-      return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_updown) >
-             conf->gamepad_analog_threshold;
+      return SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY) >
+             32766;
     case INPUT_LEFT:
-      return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_leftright) <
-             -conf->gamepad_analog_threshold;
+      return SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX) <
+             -32766;
     case INPUT_RIGHT:
-      return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_leftright) >
-             conf->gamepad_analog_threshold;
-    case INPUT_OPT:
-      return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_opt) >
-             conf->gamepad_analog_threshold;
-    case INPUT_EDIT:
-      return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_edit) >
-             conf->gamepad_analog_threshold;
+      return SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX) >
+             32766;
     case INPUT_SELECT:
       return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_select) >
-             conf->gamepad_analog_threshold;
+                                       SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 32766;
     case INPUT_START:
-      return SDL_GameControllerGetAxis(controller,
-                                       conf->gamepad_analog_axis_start) >
-             conf->gamepad_analog_threshold;
+      return SDL_GameControllerGetAxis(
+                 controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 32766;
     default:
       return 0;
     }
@@ -177,12 +169,7 @@ static int get_game_controller_button(SDL_GameController *controller,
 
 // Handle game controllers, simply check all buttons and analog axis on every
 // cycle
-static int handle_game_controller_buttons(config_params_s *conf) {
-
-  const int keycodes[8] = {key_up,  key_down, key_left,   key_right,
-                           key_opt, key_edit, key_select, key_start};
-
-  int key = 0;
+static void handle_game_controller_buttons() {
 
   // Cycle through every active game controller
   for (int gc = 0; gc < num_joysticks; gc++) {
@@ -190,45 +177,23 @@ static int handle_game_controller_buttons(config_params_s *conf) {
     for (int button = 0; button < (input_buttons_t)INPUT_MAX; button++) {
       // If the button is active, add the keycode to the variable containing
       // active keys
-      if (get_game_controller_button(conf, game_controllers[gc], button)) {
-        key |= keycodes[button];
+      if (get_game_controller_button(game_controllers[gc], button)) {
+        input_state[button] = true;
+      } else {
+        input_state[button] = false;
       }
     }
   }
-
-  return key;
 }
-*/
+
 // Handles SDL input events
 void handle_sdl_events() {
 
-  static int prev_key_analog = 0;
-
   SDL_Event event;
-  /*
-    // Read joysticks
-    int key_analog = handle_game_controller_buttons();
-    if (prev_key_analog != key_analog) {
-      keycode = key_analog;
-      prev_key_analog = key_analog;
-    }
 
-    // Read special case game controller buttons quit and reset
-    for (int gc = 0; gc < num_joysticks; gc++) {
-      if (SDL_GameControllerGetButton(game_controllers[gc], conf->gamepad_quit)
-    && (SDL_GameControllerGetButton(game_controllers[gc], conf->gamepad_select)
-    || SDL_GameControllerGetAxis(game_controllers[gc],
-                                     conf->gamepad_analog_axis_select)))
-        key = (input_msg_s){special, msg_quit};
-      else if (SDL_GameControllerGetButton(game_controllers[gc],
-                                           conf->gamepad_reset) &&
-               (SDL_GameControllerGetButton(game_controllers[gc],
-                                            conf->gamepad_select) ||
-                SDL_GameControllerGetAxis(game_controllers[gc],
-                                          conf->gamepad_analog_axis_select)))
-        key = (input_msg_s){special, msg_reset_display};
-    }
-  */
+  // Read joysticks
+  handle_game_controller_buttons();
+
   SDL_PollEvent(&event);
 
   switch (event.type) {
@@ -247,6 +212,10 @@ void handle_sdl_events() {
   // Normal keyboard inputs
   case SDL_KEYUP:
     handle_normal_keys(&event, false);
+    break;
+
+  case SDL_QUIT:
+    exit(0);
     break;
 
   default:

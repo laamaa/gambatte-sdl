@@ -1,4 +1,5 @@
 #include "SDL_timer.h"
+#include "SDL_video.h"
 #include "audioout.h"
 #include "audiosink.h"
 #include "framewait.h"
@@ -43,6 +44,9 @@ int render_sdl() {
 }
 
 void destroy_sdl() {
+  SDL_Log("Shutting down");
+  SDL_PauseAudio(1);
+  SDL_CloseAudio();
   SDL_DestroyTexture(maintexture);
   SDL_DestroyRenderer(rend);
   SDL_DestroyWindow(win);
@@ -69,7 +73,7 @@ int initialize_sdl() {
   win = SDL_CreateWindow("worlds no1 bestest emulator", SDL_WINDOWPOS_CENTERED,
                          SDL_WINDOWPOS_CENTERED, window_width, window_height,
                          SDL_WINDOW_SHOWN | SDL_WINDOW_OPENGL |
-                             SDL_WINDOW_RESIZABLE);
+                             SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN);
 
   SDL_Log("Creating renderer");
   rend = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
@@ -110,22 +114,18 @@ std::ptrdiff_t run(uint_least32_t *pixels, std::ptrdiff_t pitch,
   return vidFrameSampleNo;
 }
 
-static void setGbDir(bool &a, bool &b, bool const aPressed, bool const bPressed,
-                     bool const preferA) {
-  if (aPressed & bPressed) {
-    a = false;
-    b = false;
-  } else {
-    a = aPressed;
-    b = bPressed;
-  }
-}
-
 int main(int argc, char *argv[]) {
 
   const int sampleRate = 48000;
   const int latency = 133;
   const int periods = 4;
+  const char *rom_filename;
+
+  if (argc > 1) {
+    rom_filename = argv[1];
+  } else {
+    rom_filename = "";
+  }
 
   signal(SIGINT, intHandler);
   signal(SIGTERM, intHandler);
@@ -167,13 +167,11 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  err = gb_.load("lsdj.gb", GB::CGB_MODE);
+  err = gb_.load(rom_filename, GB::CGB_MODE);
   if (err != 0) {
     SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Could not load ROM");
     return 1;
   }
-
-
 
   for (;;) {
 
