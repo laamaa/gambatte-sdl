@@ -1,5 +1,3 @@
-#include "SDL_timer.h"
-#include "SDL_video.h"
 #include "audioout.h"
 #include "audiosink.h"
 #include "framewait.h"

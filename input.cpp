@@ -118,6 +118,9 @@ static void handle_normal_keys(SDL_Event *event, bool state) {
     input_state[INPUT_A] = state;
     input_state[INPUT_B] = state;
     break;
+  case SDLK_ESCAPE:
+    exit(0);
+    break;
   }
 }
 
@@ -126,15 +129,10 @@ static int get_game_controller_button(SDL_GameController *controller,
                                       int button) {
 
   const SDL_GameControllerButton button_mappings[8] = {
-      SDL_CONTROLLER_BUTTON_A,
-      SDL_CONTROLLER_BUTTON_B,
-      SDL_CONTROLLER_BUTTON_BACK,
-      SDL_CONTROLLER_BUTTON_START,
-      SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
-      SDL_CONTROLLER_BUTTON_DPAD_LEFT,
-      SDL_CONTROLLER_BUTTON_DPAD_UP,
-      SDL_CONTROLLER_BUTTON_DPAD_DOWN
-  };
+      SDL_CONTROLLER_BUTTON_A,          SDL_CONTROLLER_BUTTON_B,
+      SDL_CONTROLLER_BUTTON_BACK,       SDL_CONTROLLER_BUTTON_START,
+      SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+      SDL_CONTROLLER_BUTTON_DPAD_UP,    SDL_CONTROLLER_BUTTON_DPAD_DOWN};
 
   // Check digital buttons
   if (SDL_GameControllerGetButton(controller, button_mappings[button])) {
@@ -182,6 +180,16 @@ static void handle_game_controller_buttons() {
       } else {
         input_state[button] = false;
       }
+    }
+
+    // Magic combo for quitting program: Guide+Back+Start
+    if (SDL_GameControllerGetButton(game_controllers[gc],
+                                    SDL_CONTROLLER_BUTTON_GUIDE) &&
+        SDL_GameControllerGetButton(game_controllers[gc],
+                                    SDL_CONTROLLER_BUTTON_BACK) &&
+        SDL_GameControllerGetButton(game_controllers[gc],
+                                    SDL_CONTROLLER_BUTTON_START)) {
+      exit(0);
     }
   }
 }
