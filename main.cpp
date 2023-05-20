@@ -13,15 +13,14 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <vector>
 
 using namespace gambatte;
 
 SDL_Window *win;
 SDL_Renderer *rend;
 SDL_Texture *maintexture;
-SDL_Texture *target_texture;
 
+// 160x144 Gameboy resolution
 const int texture_width = 160;
 const int texture_height = 144;
 
@@ -32,7 +31,7 @@ static gambatte::GB gb_;
 static std::size_t const gb_samples_per_frame = 35112;
 static std::size_t const gambatte_max_overproduction = 2064;
 
-int render_sdl() {
+static int render_sdl() {
   SDL_SetRenderTarget(rend, NULL);
   SDL_SetRenderDrawColor(rend, 0, 0, 0, 0);
   SDL_RenderClear(rend);
@@ -42,6 +41,7 @@ int render_sdl() {
 }
 
 void destroy_sdl() {
+  close_game_controllers();
   SDL_Log("Shutting down");
   SDL_PauseAudio(1);
   SDL_CloseAudio();
@@ -52,16 +52,16 @@ void destroy_sdl() {
 }
 
 // Handles CTRL+C / SIGINT
-void intHandler(int dummy) { exit(0); }
+void int_handler(int dummy) { exit(1); }
 
-int initialize_sdl() {
+static int initialize_sdl() {
   const int window_width = 640;  // SDL window width
   const int window_height = 480; // SDL window height
 
   SDL_Log("Initializing SDL");
   if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
     SDL_LogCritical(SDL_LOG_CATEGORY_ERROR, "SDL_Init: %s\n", SDL_GetError());
-    return -1;
+    return 1;
   }
 
   // SDL documentation recommends this
@@ -88,32 +88,13 @@ int initialize_sdl() {
   SDL_SetRenderDrawColor(rend, 0, 0, 0, 1);
   SDL_RenderClear(rend);
 
-  SDL_LogSetAllPriority(SDL_LOG_PRIORITY_DEBUG);
+  //SDL_LogSetAllPriority(SDL_LOG_PRIORITY_DEBUG);
   return 0;
-}
-
-std::ptrdiff_t run(uint_least32_t *pixels, std::ptrdiff_t pitch,
-                   uint_least32_t *soundBuf, std::size_t &samples) {
-  std::size_t targetSamples = samples;
-  std::size_t actualSamples = 0;
-  std::ptrdiff_t vidFrameSampleNo = -1;
-
-  while (actualSamples < targetSamples && vidFrameSampleNo < 0) {
-    samples = targetSamples - actualSamples;
-    std::ptrdiff_t const vfsn =
-        gb_.runFor(pixels, pitch, soundBuf + actualSamples, samples);
-
-    if (vfsn >= 0)
-      vidFrameSampleNo = actualSamples + vfsn;
-
-    actualSamples += samples;
-  }
-  samples = actualSamples;
-  return vidFrameSampleNo;
 }
 
 int main(int argc, char *argv[]) {
 
+  // Audio configuration
   const int sampleRate = 48000;
   const int latency = 133;
   const int periods = 4;
@@ -122,13 +103,14 @@ int main(int argc, char *argv[]) {
   if (argc > 1) {
     rom_filename = argv[1];
   } else {
-    rom_filename = "";
+    printf("No ROM filename specified!\n");
+    exit(1);
   }
 
-  signal(SIGINT, intHandler);
-  signal(SIGTERM, intHandler);
+  signal(SIGINT, int_handler);
+  signal(SIGTERM, int_handler);
 #ifdef SIGQUIT
-  signal(SIGQUIT, intHandler);
+  signal(SIGQUIT, int_handler);
 #endif
 
   int err = 0;
@@ -137,8 +119,7 @@ int main(int argc, char *argv[]) {
 
   if (err != 0) {
     SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Could not initialize SDL.");
-    destroy_sdl();
-    return 1;
+    exit(1);
   }
 
   // initial scan for (existing) game controllers
@@ -162,13 +143,13 @@ int main(int argc, char *argv[]) {
   err = gb_.loadBios("gbc_bios.bin", 0, 0);
   if (err != 0) {
     SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Could not load BIOS");
-    return 1;
+    exit(1);
   }
 
   err = gb_.load(rom_filename, GB::CGB_MODE);
   if (err != 0) {
     SDL_LogError(SDL_LOG_CATEGORY_SYSTEM, "Could not load ROM");
-    return 1;
+    exit(1);
   }
 
   for (;;) {
@@ -186,7 +167,6 @@ int main(int argc, char *argv[]) {
         vidFrameDoneSampleCnt >= 0 && !skipSched.skipNext(audioOutBufLow);
 
     if (blit) {
-
       SDL_LockTexture(maintexture, nullptr, reinterpret_cast<void **>(&bytes),
                       &maintexture_pitch);
       SDL_memcpy(bytes, videoBuf,

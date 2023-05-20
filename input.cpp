@@ -1,28 +1,10 @@
 #include "input.h"
-#include "SDL_events.h"
-#include "SDL_gamecontroller.h"
-#include "SDL_keycode.h"
-#include "gambatte.h"
 #include <SDL.h>
 #include <stdio.h>
-
-using namespace gambatte;
 
 #define MAX_CONTROLLERS 4
 
 SDL_GameController *game_controllers[MAX_CONTROLLERS];
-
-// Bits for input messages
-enum keycodes {
-  key_a = 1,
-  key_b = 1 << 1,
-  key_select = 0x04,
-  key_start = 0x08,
-  key_right = 0x10,
-  key_left = 1 << 7,
-  key_up = 1 << 6,
-  key_down = 1 << 5,
-};
 
 static bool input_state[INPUT_MAX];
 static int num_joysticks = 0;
@@ -40,7 +22,7 @@ int initialize_game_controllers() {
   // Try to load the game controller database file
   char db_filename[1024] = {0};
   snprintf(db_filename, sizeof(db_filename), "%sgamecontrollerdb.txt",
-           SDL_GetPrefPath("", "m8c"));
+           SDL_GetPrefPath("", "gambatte-sdl2"));
   SDL_Log("Trying to open game controller database from %s", db_filename);
   SDL_RWops *db_rw = SDL_RWFromFile(db_filename, "rb");
   if (db_rw == NULL) {
@@ -86,6 +68,7 @@ void close_game_controllers() {
   }
 }
 
+// Handles keyboard keys
 static void handle_normal_keys(SDL_Event *event, bool state) {
   switch (event->key.keysym.sym) {
   case SDLK_UP:
@@ -165,16 +148,14 @@ static int get_game_controller_button(SDL_GameController *controller,
   return 0;
 }
 
-// Handle game controllers, simply check all buttons and analog axis on every
-// cycle
+// Handle game controllers, check all buttons and analog axis on every cycle
 static void handle_game_controller_buttons() {
 
   // Cycle through every active game controller
   for (int gc = 0; gc < num_joysticks; gc++) {
-    // Cycle through all M8 buttons
+    // Cycle through all Gameboy buttons
     for (int button = 0; button < (input_buttons_t)INPUT_MAX; button++) {
-      // If the button is active, add the keycode to the variable containing
-      // active keys
+      // If the button is active, add the keycode to the active key array
       if (get_game_controller_button(game_controllers[gc], button)) {
         input_state[button] = true;
       } else {
@@ -212,16 +193,16 @@ void handle_sdl_events() {
     initialize_game_controllers();
     break;
 
-  // Keyboard events. Special events are handled within SDL_KEYDOWN.
+  // Keyboard events
   case SDL_KEYDOWN:
     handle_normal_keys(&event, true);
     break;
 
-  // Normal keyboard inputs
   case SDL_KEYUP:
     handle_normal_keys(&event, false);
     break;
 
+  // Window close, OS shutdown request etc
   case SDL_QUIT:
     exit(0);
     break;
@@ -231,8 +212,9 @@ void handle_sdl_events() {
   }
 }
 
-static unsigned packedInputState(bool const inputState[],
-                                 std::size_t const len) {
+// Converts the input state array to something that gambatte-speedrun expects
+static unsigned int packedInputState(bool const inputState[],
+                                     std::size_t const len) {
   unsigned is = 0;
   for (std::size_t i = 0; i < len; ++i)
     is |= inputState[i] << (i & 7);
@@ -240,7 +222,8 @@ static unsigned packedInputState(bool const inputState[],
   return is;
 }
 
-unsigned get_input() {
+// Queries SDL event status and returns the current controller state
+unsigned int get_input() {
   handle_sdl_events();
   return packedInputState(input_state,
                           sizeof input_state / sizeof input_state[0]);
