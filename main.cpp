@@ -7,9 +7,12 @@
 #include "resample/resamplerinfo.h"
 #include "skipsched.h"
 #include "usec.h"
+#include "midi.h"
 
 #include <SDL.h>
 #include <cstddef>
+#include <portmidi.h>
+#include <porttime.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -41,6 +44,7 @@ static int render_sdl() {
 }
 
 void destroy_sdl() {
+  midi_destroy();
   close_game_controllers();
   SDL_Log("Shutting down");
   SDL_PauseAudio(1);
@@ -88,7 +92,7 @@ static int initialize_sdl() {
   SDL_SetRenderDrawColor(rend, 0, 0, 0, 1);
   SDL_RenderClear(rend);
 
-  //SDL_LogSetAllPriority(SDL_LOG_PRIORITY_DEBUG);
+  // SDL_LogSetAllPriority(SDL_LOG_PRIORITY_DEBUG);
   return 0;
 }
 
@@ -124,6 +128,8 @@ int main(int argc, char *argv[]) {
 
   // initial scan for (existing) game controllers
   initialize_game_controllers();
+
+  midi_setup();
 
   std::size_t bufsamples = 0;
   uint *bytes = nullptr;
@@ -185,6 +191,8 @@ int main(int argc, char *argv[]) {
 
     std::memmove(audioBuf, audioBuf + outsamples,
                  bufsamples * sizeof *audioBuf);
+
+    check_midi_messages(&gb_);
   }
 
   destroy_sdl();
